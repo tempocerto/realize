@@ -547,7 +547,9 @@ func (p *Project) run(stream chan Response, stop <-chan bool) (err error) {
 	defer func() {
 		// https://github.com/golang/go/issues/5615
 		// https://github.com/golang/go/issues/6720
-		build.Process.Signal(os.Interrupt)
+		if build != nil {
+			build.Process.Signal(os.Interrupt)
+		}
 	}()
 
 	// custom error pattern
@@ -571,11 +573,19 @@ func (p *Project) run(stream chan Response, stop <-chan bool) (err error) {
 		})
 		args = append(args, a...)
 	}
-	dirPath := os.Getenv("GOBIN")
-	if p.Tools.Run.Dir != "" {
-		dirPath, _ = filepath.Abs(p.Tools.Run.Dir)
-	}
+
 	path := p.Path
+	dirPath := path
+	if p.Tools.Install.Status {
+		dirPath = os.Getenv("GOBIN")
+	} else if p.Tools.Run.Dir != "" {
+		dirPath = p.Tools.Run.Dir
+	}
+	dirPath, err = filepath.Abs(dirPath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	name := filepath.Base(path)
 	if path == "." && p.Tools.Run.Dir == "" {
 		name = filepath.Base(Wdir())
@@ -588,13 +598,7 @@ func (p *Project) run(stream chan Response, stop <-chan bool) (err error) {
 	} else if _, err := os.Stat(path + RExtWin); err == nil {
 		build = exec.Command(path+RExtWin, args...)
 	} else {
-		if _, err = os.Stat(path); err == nil {
-			build = exec.Command(path, args...)
-		} else if _, err = os.Stat(path + RExtWin); err == nil {
-			build = exec.Command(path+RExtWin, args...)
-		} else {
-			return errors.New("project not found")
-		}
+		return errors.New("project not found")
 	}
 	build.Dir = p.Path
 	build.Env = buildEnv(p.Environment, build.Dir)
