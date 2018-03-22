@@ -2,9 +2,10 @@ package realize
 
 import (
 	"errors"
-	"gopkg.in/urfave/cli.v2"
 	"path/filepath"
 	"reflect"
+
+	"gopkg.in/urfave/cli.v2"
 )
 
 // Schema projects list
@@ -63,6 +64,9 @@ func (s *Schema) New(c *cli.Context) Project {
 			},
 			Run: Tool{
 				Status: c.Bool("run"),
+			},
+			GoRun: Tool{
+				Status: c.Bool("gorun"),
 			},
 		},
 		Args: params(c),

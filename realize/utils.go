@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"gopkg.in/urfave/cli.v2"
@@ -89,7 +90,7 @@ func Wdir() string {
 const fromEnvPrefix = "from-env:"
 
 // buildEnv returns OS environment and expand project env when necessary
-func buildEnv(projectEnv map[string]string) []string {
+func buildEnv(projectEnv map[string]string, pwd string) []string {
 	env := os.Environ()
 	for key, item := range projectEnv {
 		if strings.HasPrefix(item, fromEnvPrefix) {
@@ -98,5 +99,10 @@ func buildEnv(projectEnv map[string]string) []string {
 		}
 		env = append(env, fmt.Sprintf("%s=%s", key, item))
 	}
-	return env
+	var err error
+	pwd, err = filepath.Abs(pwd)
+	if err != nil {
+		log.Fatal(err)
+	}
+	return append(env, fmt.Sprintf("PWD=%s", pwd))
 }

@@ -198,7 +198,7 @@ func (p *Project) Reload(path string, stop <-chan bool) {
 	// Prevent fake events on polling startup
 	p.init = true
 	// prevent errors using realize without config with only run flag
-	if p.Tools.Run.Status && !p.Tools.Install.Status && !p.Tools.Build.Status {
+	if p.Tools.Run.Status && !p.Tools.GoRun.Status && !p.Tools.Install.Status && !p.Tools.Build.Status {
 		p.Tools.Install.Status = true
 	}
 	if done {
@@ -226,7 +226,7 @@ func (p *Project) Reload(path string, stop <-chan bool) {
 	if done {
 		return
 	}
-	if install.Err == nil && build.Err == nil && p.Tools.Run.Status {
+	if install.Err == nil && build.Err == nil && (p.Tools.Run.Status || p.Tools.GoRun.Status) {
 		result := make(chan Response)
 		go func() {
 			for {
@@ -249,7 +249,12 @@ func (p *Project) Reload(path string, stop <-chan bool) {
 		}()
 		go func() {
 			log.Println(p.pname(p.Name, 1), ":", "Running..")
-			err := p.run(p.Path, result, stop)
+			var err error
+			if p.Tools.GoRun.Status {
+				err = p.gorun(result, stop)
+			} else {
+				err = p.run(result, stop)
+			}
 			if err != nil {
 				msg := fmt.Sprintln(p.pname(p.Name, 2), ":", Red.Regular(err))
 				out := BufferOut{Time: time.Now(), Text: err.Error(), Type: "Go Run"}
@@ -448,7 +453,7 @@ func (p *Project) cmd(stop <-chan bool, flag string, global bool) {
 	go func() {
 		for _, cmd := range p.Watcher.Scripts {
 			if strings.ToLower(cmd.Type) == flag && cmd.Global == global {
-				result <- cmd.exec(p.Path, buildEnv(p.Environment), stop)
+				result <- cmd.exec(p.Path, buildEnv(p.Environment, p.Path), stop)
 			}
 		}
 		close(done)
@@ -535,7 +540,7 @@ func (p *Project) stamp(t string, o BufferOut, msg string, stream string) {
 }
 
 // Run a project
-func (p *Project) run(path string, stream chan Response, stop <-chan bool) (err error) {
+func (p *Project) run(stream chan Response, stop <-chan bool) (err error) {
 	var args []string
 	var build *exec.Cmd
 	var r Response
@@ -570,6 +575,7 @@ func (p *Project) run(path string, stream chan Response, stop <-chan bool) (err 
 	if p.Tools.Run.Dir != "" {
 		dirPath, _ = filepath.Abs(p.Tools.Run.Dir)
 	}
+	path := p.Path
 	name := filepath.Base(path)
 	if path == "." && p.Tools.Run.Dir == "" {
 		name = filepath.Base(Wdir())
@@ -590,8 +596,86 @@ func (p *Project) run(path string, stream chan Response, stop <-chan bool) (err 
 			return errors.New("project not found")
 		}
 	}
+	build.Dir = p.Path
+	build.Env = buildEnv(p.Environment, build.Dir)
+	// scan project stream
+	stdout, err := build.StdoutPipe()
+	stderr, err := build.StderrPipe()
+	if err != nil {
+		return err
+	}
+	if err := build.Start(); err != nil {
+		return err
+	}
+	execOutput, execError := bufio.NewScanner(stdout), bufio.NewScanner(stderr)
+	stopOutput, stopError := make(chan bool, 1), make(chan bool, 1)
+	scanner := func(stop chan bool, output *bufio.Scanner, isError bool) {
+		for output.Scan() {
+			text := output.Text()
+			if isError && !isErrorText(text) {
+				r.Err = errors.New(text)
+				stream <- r
+				r.Err = nil
+			} else {
+				r.Out = text
+				stream <- r
+				r.Out = ""
+			}
+		}
+		close(stop)
+	}
+	go scanner(stopOutput, execOutput, false)
+	go scanner(stopError, execError, true)
+	for {
+		select {
+		case <-stop:
+			return
+		case <-stopOutput:
+			return
+		case <-stopError:
+			return
+		}
+	}
+}
+
+// Run a project using "go run"
+func (p *Project) gorun(stream chan Response, stop <-chan bool) (err error) {
+	goRun := p.Tools.GoRun
+	var r Response
+
+	// custom error pattern
+	isErrorText := func(string) bool {
+		return false
+	}
+	errRegexp, err := regexp.Compile(p.ErrorOutputPattern)
+	if err != nil {
+		r.Err = err
+		stream <- r
+	} else {
+		isErrorText = func(t string) bool {
+			return errRegexp.MatchString(t)
+		}
+	}
+
+	// add additional arguments
+	args := append(goRun.cmd, goRun.Args...)
+	for _, arg := range p.Args {
+		a := strings.FieldsFunc(arg, func(i rune) bool {
+			return i == '"' || i == '=' || i == '\''
+		})
+		args = append(args, a...)
+	}
+
+	build := exec.Command(args[0], args[1:]...)
+	defer func() {
+		// https://github.com/golang/go/issues/5615
+		// https://github.com/golang/go/issues/6720
+		build.Process.Signal(os.Interrupt)
+	}()
+
+	build.Dir = p.Path
 	// set environment
-	build.Env = buildEnv(p.Environment)
+	build.Env = buildEnv(p.Environment, build.Dir)
 	// scan project stream
 	stdout, err := build.StdoutPipe()
 	stderr, err := build.StderrPipe()
@@ -653,7 +737,6 @@ func (c *Command) exec(base string, env []string, stop <-chan bool) (response Re
 	args := strings.Split(strings.Replace(strings.Replace(c.Cmd, "'", "", -1), "\"", "", -1), " ")
 	ex := exec.Command(args[0], args[1:]...)
 	ex.Dir = base
-	ex.Env = env
 	// make cmd path
 	if c.Path != "" {
 		if strings.Contains(c.Path, base) {
@@ -662,6 +745,7 @@ func (c *Command) exec(base string, env []string, stop <-chan bool) (response Re
 			ex.Dir = filepath.Join(base, c.Path)
 		}
 	}
+	ex.Env = env
 	ex.Stdout = &stdout
 	ex.Stderr = &stderr
 	// Start command

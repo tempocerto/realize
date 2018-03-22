@@ -35,6 +35,7 @@ type Tools struct {
 	Install  Tool `yaml:"install,omitempty" json:"install,omitempty"`
 	Build    Tool `yaml:"build,omitempty" json:"build,omitempty"`
 	Run      Tool `yaml:"run,omitempty" json:"run,omitempty"`
+	GoRun    Tool `yaml:"gorun,omitempty" json:"gorun,omitempty"`
 }
 
 // Setup go tools
@@ -89,6 +90,17 @@ func (t *Tools) Setup() {
 		t.Build.name = "Build"
 		t.Build.cmd = replace([]string{"go", "build"}, t.Build.Method)
 		t.Build.Args = split([]string{}, t.Build.Args)
+	}
+	// go run
+	if t.GoRun.Status {
+		t.GoRun.dir = true
+		t.GoRun.name = "GoRun"
+		t.GoRun.cmd = replace([]string{"go", "run"}, t.GoRun.Method)
+		defArgs := []string{}
+		if len(t.GoRun.Args) == 0 {
+			defArgs = []string{"main.go"}
+		}
+		t.GoRun.Args = split(defArgs, t.GoRun.Args)
 	}
 }
 
