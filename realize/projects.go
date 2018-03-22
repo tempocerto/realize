@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/fsnotify/fsnotify"
 	"log"
 	"math/big"
 	"os"
@@ -17,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/fsnotify/fsnotify"
 )
 
 var (
@@ -110,12 +111,6 @@ func (p *Project) Before() {
 	}
 	// setup go tools
 	p.Tools.Setup()
-	// set env const
-	for key, item := range p.Environment {
-		if err := os.Setenv(key, item); err != nil {
-			p.Buffer.StdErr = append(p.Buffer.StdErr, BufferOut{Time: time.Now(), Text: err.Error(), Type: "Env error", Stream: ""})
-		}
-	}
 	// global commands before
 	p.cmd(p.stop, "before", true)
 	// indexing files and dirs
@@ -453,7 +448,7 @@ func (p *Project) cmd(stop <-chan bool, flag string, global bool) {
 	go func() {
 		for _, cmd := range p.Watcher.Scripts {
 			if strings.ToLower(cmd.Type) == flag && cmd.Global == global {
-				result <- cmd.exec(p.Path, stop)
+				result <- cmd.exec(p.Path, buildEnv(p.Environment), stop)
 			}
 		}
 		close(done)
@@ -595,6 +590,8 @@ func (p *Project) run(path string, stream chan Response, stop <-chan bool) (err 
 			return errors.New("project not found")
 		}
 	}
+	// set environment
+	build.Env = buildEnv(p.Environment)
 	// scan project stream
 	stdout, err := build.StdoutPipe()
 	stderr, err := build.StderrPipe()
@@ -649,13 +646,14 @@ func (r *Response) print(start time.Time, p *Project) {
 }
 
 // Exec an additional command from a defined path if specified
-func (c *Command) exec(base string, stop <-chan bool) (response Response) {
+func (c *Command) exec(base string, env []string, stop <-chan bool) (response Response) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	done := make(chan error)
 	args := strings.Split(strings.Replace(strings.Replace(c.Cmd, "'", "", -1), "\"", "", -1), " ")
 	ex := exec.Command(args[0], args[1:]...)
 	ex.Dir = base
+	ex.Env = env
 	// make cmd path
 	if c.Path != "" {
 		if strings.Contains(c.Path, base) {

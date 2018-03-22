@@ -142,6 +142,7 @@ For more examples check: [Realize Examples](https://github.com/oxequa/realize-ex
       environment:            // env variables available at startup
             test: test
             myvar: value
+            DB_CONNECTION: from-env:PROJECT_NAME_DB_CONNECTION    // expand env "PROJECT_NAME_DB_CONNECTION" to "DB_CONNECTION"
       commands:               // go commands supported
         vet:
             status: true

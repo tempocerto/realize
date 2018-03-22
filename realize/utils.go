@@ -2,10 +2,12 @@ package realize
 
 import (
 	"errors"
-	"gopkg.in/urfave/cli.v2"
+	"fmt"
 	"log"
 	"os"
 	"strings"
+
+	"gopkg.in/urfave/cli.v2"
 )
 
 // Array check if a string is in given array
@@ -82,4 +84,13 @@ func Wdir() string {
 		log.Fatal(err.Error())
 	}
 	return dir
+}
+
+// buildEnv returns OS environment and expand project env when necessary
+func buildEnv(projectEnv map[string]string) []string {
+	env := os.Environ()
+	for key, item := range projectEnv {
+		env = append(env, fmt.Sprintf("%s=%s", key, item))
+	}
+	return env
 }
