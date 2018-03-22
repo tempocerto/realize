@@ -47,7 +47,7 @@
 
 ## Quickstart
 ```
-go get github.com/oxequa/realize
+go get github.com/tempocerto/realize
 ```
 
 ## Commands List
