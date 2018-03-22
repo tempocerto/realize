@@ -86,10 +86,16 @@ func Wdir() string {
 	return dir
 }
 
+const fromEnvPrefix = "from-env:"
+
 // buildEnv returns OS environment and expand project env when necessary
 func buildEnv(projectEnv map[string]string) []string {
 	env := os.Environ()
 	for key, item := range projectEnv {
+		if strings.HasPrefix(item, fromEnvPrefix) {
+			item = strings.TrimPrefix(item, fromEnvPrefix)
+			item = os.Getenv(item)
+		}
 		env = append(env, fmt.Sprintf("%s=%s", key, item))
 	}
 	return env
